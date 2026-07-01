@@ -1,0 +1,9 @@
+# Zig build artifacts
+zig-out/
+.zig-cache/
+
+# SQLite database files (the LLM's data lives here; don't commit it)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
