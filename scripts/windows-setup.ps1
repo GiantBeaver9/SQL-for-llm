@@ -22,7 +22,13 @@ param(
     # Skip enabling the OpenSSH server if you only want RDP.
     [switch]$NoSsh,
     # Skip opening SMB (file sharing) on the Tailscale interface.
-    [switch]$NoSmb
+    [switch]$NoSmb,
+    # Let the PC sleep and wake via Wake-on-LAN (magic packet) instead of
+    # staying on 24/7. Pair this with an always-on device (e.g. your Pi-hole
+    # Raspberry Pi) that sends the wake packet -- see scripts/pi-wol-setup.sh.
+    [switch]$WakeOnLan,
+    # When -WakeOnLan is set, sleep after this many idle minutes on AC power.
+    [int]$SleepAfterMinutes = 30
 )
 
 $ErrorActionPreference = 'Stop'
@@ -113,10 +119,48 @@ if (-not $NoSmb) {
     Write-Warn2 'Skipping SMB (-NoSmb).'
 }
 
-# --- 5. Keep the PC awake for incoming connections ------------------------
-Write-Step 'Preventing sleep so the PC stays reachable'
-powercfg /change standby-timeout-ac 0   # never sleep on AC power
-Write-Ok 'Standby on AC power disabled (screen can still turn off).'
+# --- 5. Power: Wake-on-LAN (save power) or stay awake ---------------------
+if ($WakeOnLan) {
+    Write-Step "Configuring Wake-on-LAN (sleep after $SleepAfterMinutes min, wake on a magic packet)"
+
+    # Disable Fast Startup so WoL works reliably from shutdown as well as sleep.
+    Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' `
+        -Name 'HiberbootEnabled' -Value 0 -ErrorAction SilentlyContinue
+    Write-Ok 'Fast Startup disabled (WoL reliable from sleep and shutdown).'
+
+    # Enable magic-packet wake on every active wired adapter.
+    $wolSet = $false
+    foreach ($ad in (Get-NetAdapter -Physical -ErrorAction SilentlyContinue |
+                     Where-Object Status -eq 'Up')) {
+        try {
+            Set-NetAdapterPowerManagement -Name $ad.Name -WakeOnMagicPacket Enabled `
+                -DeviceSleepOnDisconnect Disabled -ErrorAction Stop
+            # Some NIC drivers also gate this behind an advanced property.
+            Get-NetAdapterAdvancedProperty -Name $ad.Name -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -match 'Wake on Magic Packet|WakeOnMagicPacket' } |
+                ForEach-Object {
+                    Set-NetAdapterAdvancedProperty -Name $ad.Name `
+                        -DisplayName $_.DisplayName -DisplayValue 'Enabled' -ErrorAction SilentlyContinue
+                }
+            Write-Ok "Wake-on-Magic-Packet enabled on '$($ad.Name)'."
+            $wolSet = $true
+        } catch {
+            Write-Warn2 "Could not set WoL on '$($ad.Name)': $($_.Exception.Message)"
+        }
+    }
+    if (-not $wolSet) {
+        Write-Warn2 'No wired adapter accepted WoL settings -- check the NIC driver.'
+    }
+
+    powercfg /change standby-timeout-ac $SleepAfterMinutes
+    Write-Ok "PC will sleep after $SleepAfterMinutes idle minutes on AC power."
+    Write-Warn2 'ALSO enable "Wake on LAN" / "Power On by PCIe" in your BIOS/UEFI.'
+    Write-Warn2 'WoL needs WIRED Ethernet -- Wi-Fi wake is unreliable.'
+} else {
+    Write-Step 'Preventing sleep so the PC stays reachable'
+    powercfg /change standby-timeout-ac 0   # never sleep on AC power
+    Write-Ok 'Standby on AC power disabled. Re-run with -WakeOnLan to sleep & save power.'
+}
 
 # --- 6. Bring Tailscale up -------------------------------------------------
 Write-Step 'Starting Tailscale (a browser window will open to authenticate)'
@@ -131,9 +175,15 @@ Write-Step 'Done. Connection details:'
 try {
     $ip4  = (& tailscale ip -4) 2>$null
     $name = (& tailscale status --json | ConvertFrom-Json).Self.DNSName.TrimEnd('.')
+    $mac  = (Get-NetAdapter -Physical -ErrorAction SilentlyContinue |
+             Where-Object Status -eq 'Up' | Select-Object -First 1).MacAddress
     Write-Host ""
     Write-Host "    Tailscale IP  : $ip4"          -ForegroundColor Green
     Write-Host "    MagicDNS name : $name"          -ForegroundColor Green
+    if ($WakeOnLan) {
+        Write-Host "    MAC (for WoL) : $mac"        -ForegroundColor Green
+        Write-Host "    -> Give this MAC to the Pi:  sudo ./pi-wol-setup.sh $mac" -ForegroundColor White
+    }
     Write-Host ""
     Write-Host "    From another Tailnet device:"   -ForegroundColor White
     Write-Host "      RDP  : mstsc /v:$ip4"          -ForegroundColor White

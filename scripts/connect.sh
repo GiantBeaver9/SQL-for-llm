@@ -9,10 +9,13 @@
 #   ./connect.sh files               # mount SMB / open sftp
 #   ./connect.sh web <port>          # open http://<pc>:<port> in a browser
 #   ./connect.sh ip                  # just print the PC's Tailscale IP
+#   ./connect.sh wake [--wait]       # wake a sleeping PC via the Pi (WoL)
 #
 # Configure the target host once via env var or edit HOST below:
 #   export REMOTE_PC=home-pc          # MagicDNS name, or 100.x.y.z IP
 #   export REMOTE_USER=you
+#   export WOL_HOST=pi-hole           # Pi's Tailscale name (for 'wake')
+#   export WOL_USER=pi                # ssh user on the Pi (defaults to REMOTE_USER)
 #
 set -euo pipefail
 
@@ -65,9 +68,23 @@ case "$ACTION" in
   ip)
     resolve_ip
     ;;
+  wake)
+    pi="${WOL_HOST:?set WOL_HOST to the Pi Tailscale name}"
+    piuser="${WOL_USER:-$USER_NAME}"
+    echo "Waking ${HOST} via ${pi}..."
+    ssh "${piuser}@${pi}" wake-home-pc
+    if [[ "${2:-}" == "--wait" ]]; then
+      printf 'Waiting for %s to respond' "$HOST"
+      for _ in $(seq 1 30); do
+        if ping -c1 -W1 "$HOST" >/dev/null 2>&1; then echo " up!"; exit 0; fi
+        printf '.'; sleep 2
+      done
+      echo " (still no response after ~60s — give it a bit longer or check BIOS WoL)"
+    fi
+    ;;
   *)
     echo "Unknown action: $ACTION" >&2
-    echo "Try: ssh | rdp | files | web <port> | ip" >&2
+    echo "Try: ssh | rdp | files | web <port> | ip | wake [--wait]" >&2
     exit 1
     ;;
 esac
