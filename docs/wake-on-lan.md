@@ -21,15 +21,34 @@ The Pi is already on and on your LAN, so it can broadcast the Wake-on-LAN
 "magic packet" to the PC's MAC address. You reach the Pi from anywhere over
 Tailscale, tell it to wake the PC, then connect to the PC directly once it's up.
 
-## Do I need a static IP?
+## Static / reserved LAN IPs
 
-Short version: **no static *public* IP** (Tailscale handles your changing home
-IP), and the wake itself targets the **MAC**, not an IP. But a **DHCP
-reservation** for the PC and the Pi is worth doing for reliability — and since
-Pi-hole can be your DHCP server, it's a couple of clicks:
+Two different "static IPs" — don't confuse them:
 
-- Pi-hole admin → **Settings → DHCP** → enable DHCP (if you use it) →
-  **Add static DHCP lease** for the PC and the Pi (bind their MACs to fixed IPs).
+- **Public IP:** you do **not** need a static public IP. Tailscale handles your
+  home's changing public address automatically.
+- **LAN IP:** a reserved on-network IP for the PC (and Pi) is worth doing for
+  reliability. Note the wake itself targets the PC's **MAC** (broadcast), so it
+  works even with a dynamic IP — but a reservation keeps everything predictable.
+
+### Reserve the addresses
+
+The clean way is a **DHCP reservation** (bind MAC → fixed IP centrally) rather
+than manually setting a static IP on each machine's NIC — no per-device config,
+no address conflicts.
+
+**Important: only one DHCP server on the LAN.** Do the reservation wherever DHCP
+actually runs — running both Pi-hole's DHCP *and* the router's will cause
+conflicts.
+
+| Your setup | Where to reserve |
+|---|---|
+| Router hands out addresses (default) | Router admin → LAN / DHCP → **Address Reservation** (bind PC + Pi MACs) |
+| Pi-hole is your DHCP server | Pi-hole admin → **Settings → DHCP** → **Add static DHCP lease** for the PC + Pi |
+
+If the Pi already has a static/reserved IP, you're most of the way there — just
+add a reservation for the **PC** in the same place, using the MAC that
+`windows-setup.ps1 -WakeOnLan` printed.
 
 ## Setup
 
