@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Structured ACORD-style E&O submission: the only automated intake path.
+     Accountant in CA, $750k revenue, 8 years in business, $1M limit / $5k retention,
+     two prior claims (one recent small, one older mid-severity). -->
+<ACORD>
+  <InsuranceSvcRq>
+    <ProfLiabilityPolicyQuoteInqRq>
+      <InsuredOrPrincipal>
+        <GeneralPartyInfo>
+          <NameInfo>
+            <CommlName>
+              <CommercialName>Meridian Ledger Advisors LLP</CommercialName>
+            </CommlName>
+          </NameInfo>
+          <Addr>
+            <StateProvCd>CA</StateProvCd>
+          </Addr>
+        </GeneralPartyInfo>
+        <InsuredOrPrincipalInfo>
+          <BusinessInfo>
+            <ProfessionClassCd>ACCT</ProfessionClassCd>
+            <AnnualRevenueAmt>750000</AnnualRevenueAmt>
+            <NumYearsInBusiness>8</NumYearsInBusiness>
+          </BusinessInfo>
+        </InsuredOrPrincipalInfo>
+      </InsuredOrPrincipal>
+      <CommlCoverage>
+        <CoverageCd>EO</CoverageCd>
+        <Limit>
+          <FormatCurrencyAmt>
+            <Amt>1000000</Amt>
+          </FormatCurrencyAmt>
+        </Limit>
+        <Deductible>
+          <FormatCurrencyAmt>
+            <Amt>5000</Amt>
+          </FormatCurrencyAmt>
+        </Deductible>
+      </CommlCoverage>
+      <Loss>
+        <LossDt>2025-11-10</LossDt>
+        <TotalPaidAmt>12000</TotalPaidAmt>
+      </Loss>
+      <Loss>
+        <LossDt>2023-03-04</LossDt>
+        <TotalPaidAmt>60000</TotalPaidAmt>
+      </Loss>
+    </ProfLiabilityPolicyQuoteInqRq>
+  </InsuranceSvcRq>
+</ACORD>

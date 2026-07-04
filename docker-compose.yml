@@ -1,0 +1,14 @@
+services:
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: eoquoter-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "EOQuoter!Dev2026"
+    ports:
+      - "1433:1433"
+    volumes:
+      - eoquoter-sql-data:/var/opt/mssql
+
+volumes:
+  eoquoter-sql-data:
