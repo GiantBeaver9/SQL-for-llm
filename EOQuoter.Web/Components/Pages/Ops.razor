@@ -1,0 +1,95 @@
+@page "/ops"
+@rendermode InteractiveServer
+@using EOQuoter.Data
+@using EOQuoter.Data.Entities
+@using EOQuoter.Domain
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<QuoterDbContext> QuoterFactory
+@inject IDbContextFactory<ExecutionTrackingDbContext> TrackingFactory
+
+<PageTitle>Ops — EOQuoter</PageTitle>
+
+<h1>Operations</h1>
+<p class="muted">
+    The technical stream: job runs, sproc executions, dead letters, rejects. Kept apart from the
+    decision audit on purpose — reconciliation evidence shouldn't be buried in request-trace noise.
+</p>
+<button @onclick="LoadAsync">Refresh</button>
+
+<h2>Batch jobs</h2>
+<table>
+    <thead><tr><th>Job</th><th>Type</th><th>Status</th><th>Period</th><th>Attempts</th><th>Checkpoint</th><th>Last error</th><th>Completed</th></tr></thead>
+    <tbody>
+        @foreach (var j in jobs)
+        {
+            <tr class="@(j.Status == JobStatus.Failed ? "discrepancy" : "")">
+                <td class="mono">@j.JobId.ToString()[..8]…</td><td>@j.Type</td><td>@j.Status</td>
+                <td>@j.Period.ToString("yyyy-MM")</td><td>@j.AttemptCount</td>
+                <td class="muted">@j.Checkpoint</td><td class="muted">@j.LastError</td>
+                <td>@(j.CompletedAt?.ToString("u") ?? "—")</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<h2>Sproc executions <span class="muted">(separate tracking DB — survives work-tx rollback)</span></h2>
+<table>
+    <thead><tr><th>Run</th><th>Sproc</th><th>Status</th><th>Rows</th><th>Started</th><th>Ended</th><th>Error</th><th>Rejects ref</th></tr></thead>
+    <tbody>
+        @foreach (var s in sprocRuns)
+        {
+            <tr class="@(s.Status == ExecutionStatus.Failed ? "discrepancy" : "")">
+                <td class="mono">@s.RunId.ToString()[..8]…</td><td>@s.SprocName</td><td>@s.Status</td>
+                <td>@s.RowsAffected</td><td>@s.StartedAt.ToString("u")</td>
+                <td>@(s.EndedAt?.ToString("u") ?? "—")</td>
+                <td class="muted">@s.Error</td>
+                <td class="mono">@(s.RejectsRef?.ToString()[..8] ?? "—")</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<h2>Rejected items <span class="muted">(resume = reprocess these, never the period)</span></h2>
+<table>
+    <thead><tr><th>External ref</th><th>Reason</th><th>Rejected at</th><th>Payload</th></tr></thead>
+    <tbody>
+        @foreach (var r in rejects)
+        {
+            <tr><td>@r.ExternalReferenceId</td><td>@r.Reason</td><td>@r.RejectedAt.ToString("u")</td><td class="muted mono">@r.RawPayload</td></tr>
+        }
+    </tbody>
+</table>
+
+<h2>Dead letters <span class="muted">(outbox messages that kept failing)</span></h2>
+<table>
+    <thead><tr><th>Type</th><th>Dedupe key</th><th>Attempts</th><th>Error</th><th>At</th></tr></thead>
+    <tbody>
+        @foreach (var d in deadLetters)
+        {
+            <tr class="discrepancy"><td>@d.Type</td><td class="mono">@d.DedupeKey</td><td>@d.AttemptCount</td><td>@d.Error</td><td>@d.DeadLetteredAt.ToString("u")</td></tr>
+        }
+    </tbody>
+</table>
+<p class="muted">Outbox: @pendingOutbox pending message(s).</p>
+
+@code {
+    private List<BatchJobRow> jobs = [];
+    private List<SprocExecutionLogRow> sprocRuns = [];
+    private List<RejectedItemRow> rejects = [];
+    private List<DeadLetterRow> deadLetters = [];
+    private int pendingOutbox;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await QuoterFactory.CreateDbContextAsync();
+        jobs = await db.BatchJobs.AsNoTracking().OrderByDescending(j => j.CreatedAt).Take(20).ToListAsync();
+        rejects = await db.RejectedItems.AsNoTracking().OrderByDescending(r => r.RejectedAt).Take(20).ToListAsync();
+        deadLetters = await db.DeadLetters.AsNoTracking().OrderByDescending(d => d.DeadLetteredAt).Take(20).ToListAsync();
+        pendingOutbox = await db.Outbox.AsNoTracking().CountAsync(m => m.DispatchedAt == null);
+
+        await using var tracking = await TrackingFactory.CreateDbContextAsync();
+        sprocRuns = await tracking.SprocExecutions.AsNoTracking().OrderByDescending(s => s.StartedAt).Take(20).ToListAsync();
+    }
+}

@@ -1,0 +1,18 @@
+@page "/"
+
+<PageTitle>EOQuoter internal viewer</PageTitle>
+
+<h1>EOQuoter internal viewer</h1>
+<p class="muted">Two separated streams, two views — by design.</p>
+
+<ul>
+    <li>
+        <a href="/audit"><b>Decision audit</b></a> — rating ledgers, eligibility outcomes, bind/issue
+        events, reconciliation results. Keyed by quote/policy/external ref: pull one risk, see every
+        decision and dollar that touched it.
+    </li>
+    <li>
+        <a href="/ops"><b>Operations</b></a> — batch job status, sproc execution log (from the separate
+        tracking DB), rejects, dead letters. Operator-facing.
+    </li>
+</ul>

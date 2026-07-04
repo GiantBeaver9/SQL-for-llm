@@ -1,0 +1,175 @@
+@page "/audit"
+@rendermode InteractiveServer
+@using System.Text.Json
+@using EOQuoter.Data
+@using EOQuoter.Data.Entities
+@using EOQuoter.Domain
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<QuoterDbContext> DbFactory
+
+<PageTitle>Audit — EOQuoter</PageTitle>
+
+<h1>Decision audit</h1>
+<p class="muted">
+    The regulator/carrier-facing trail: pull one risk and see every decision and dollar that touched it.
+    Search by policy number, external reference, or a quote/policy/submission id.
+</p>
+
+<div class="search-row">
+    <input @bind="query" @bind:event="oninput" @onkeyup="@(e => { if (e.Key == "Enter") _ = SearchAsync(); })"
+           placeholder="EO-2026-000001, EXT-…, or a GUID" />
+    <button @onclick="SearchAsync">Search</button>
+</div>
+
+@if (message is not null)
+{
+    <p class="muted">@message</p>
+}
+
+@if (policy is not null)
+{
+    <h2>Policy @policy.PolicyNumber</h2>
+    <table>
+        <tbody>
+            <tr><th>Status</th><td>@policy.Status</td><th>External ref</th><td>@policy.ExternalReferenceId</td></tr>
+            <tr><th>Effective</th><td>@policy.EffectiveDate → @policy.ExpiryDate</td><th>Premium</th><td>@policy.Premium.ToString("C2")</td></tr>
+            <tr><th>Commission rate</th><td>@policy.CommissionRate.ToString("P2")</td><th>Bound at</th><td>@policy.BoundAt.ToString("u")</td></tr>
+        </tbody>
+    </table>
+}
+
+@if (quote is not null)
+{
+    <h2>Quote @quote.QuoteId</h2>
+    <p>
+        Quoted <b>@quote.Premium.ToString("C2")</b> on @quote.QuoteDate (expires @quote.ExpiresOn) —
+        priced against the rate version effective <b>@quote.RateEffectiveDate</b>, the version in force at quote time.
+    </p>
+
+    <h3>Rating ledger</h3>
+    <p class="muted">Ordered and marginal: each step's dollar delta is its actual cost given everything before it; the deltas sum to final − base exactly.</p>
+    <table>
+        <thead>
+            <tr><th>#</th><th>Step</th><th>Kind</th><th>Factor</th><th>Before</th><th>Δ $</th><th>After</th><th>Note</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var step in ledger)
+            {
+                <tr>
+                    <td>@step.Order</td><td>@step.Name</td><td>@step.Kind</td><td>@step.Value.ToString("0.####")</td>
+                    <td>@step.PremiumBefore.ToString("C2")</td>
+                    <td class="@(step.DollarDelta >= 0 ? "delta-up" : "delta-down")">@step.DollarDelta.ToString("+#,0.00;-#,0.00;0.00")</td>
+                    <td>@step.PremiumAfter.ToString("C2")</td><td class="muted">@step.Note</td>
+                </tr>
+                @if (step.Breakdown is { Count: > 0 })
+                {
+                    @foreach (var claim in step.Breakdown)
+                    {
+                        <tr class="sub-row">
+                            <td></td>
+                            <td colspan="7">
+                                ↳ claim @claim.ClaimAmount.ToString("C0") on @claim.OccurredOn —
+                                severity @claim.SeverityBand (load @claim.SeverityLoad.ToString("0.00")) ×
+                                recency @claim.RecencyBand (weight @claim.RecencyWeight.ToString("0.0")) =
+                                additive load @claim.Load.ToString("0.000")
+                            </td>
+                        </tr>
+                    }
+                }
+            }
+        </tbody>
+        <tfoot>
+            <tr>
+                <th colspan="4">Σ deltas = @ledger.Sum(s => s.DollarDelta).ToString("C2")</th>
+                <th colspan="4">final − base = @((quote.Premium - quote.BasePremium).ToString("C2"))</th>
+            </tr>
+        </tfoot>
+    </table>
+}
+
+@if (events.Count > 0)
+{
+    <h2>Event timeline</h2>
+    <table>
+        <thead><tr><th>At</th><th>Entity</th><th>Event</th><th>Detail</th></tr></thead>
+        <tbody>
+            @foreach (var e in events)
+            {
+                <tr><td>@e.OccurredAt.ToString("u")</td><td>@e.EntityType</td><td>@e.EventType</td><td class="muted mono">@e.DetailJson</td></tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (reconciliation.Count > 0)
+{
+    <h2>Reconciliation results</h2>
+    <table>
+        <thead><tr><th>Period</th><th>Category</th><th>MGA gross</th><th>Carrier gross</th><th>Detail</th></tr></thead>
+        <tbody>
+            @foreach (var r in reconciliation)
+            {
+                <tr class="@(r.Category == "Matched" ? "" : "discrepancy")">
+                    <td>@r.Period.ToString("yyyy-MM")</td><td>@r.Category</td>
+                    <td>@(r.MgaGross?.ToString("C2") ?? "—")</td><td>@(r.CarrierGross?.ToString("C2") ?? "—")</td>
+                    <td>@r.Detail</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private string query = "";
+    private string? message;
+    private PolicyRow? policy;
+    private QuoteRow? quote;
+    private List<RatingStep> ledger = [];
+    private List<AuditEventRow> events = [];
+    private List<ReconciliationResultRow> reconciliation = [];
+
+    private async Task SearchAsync()
+    {
+        message = null;
+        policy = null; quote = null; ledger = []; events = []; reconciliation = [];
+        var term = query.Trim();
+        if (term.Length == 0) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        policy = await db.Policies.AsNoTracking().FirstOrDefaultAsync(p =>
+            p.PolicyNumber == term || p.ExternalReferenceId == term);
+        if (policy is null && Guid.TryParse(term, out var id))
+        {
+            policy = await db.Policies.AsNoTracking().FirstOrDefaultAsync(p => p.PolicyId == id || p.QuoteId == id);
+            quote = await db.Quotes.AsNoTracking().FirstOrDefaultAsync(q => q.QuoteId == id || q.SubmissionId == id);
+        }
+        if (policy is not null)
+            quote ??= await db.Quotes.AsNoTracking().FirstOrDefaultAsync(q => q.QuoteId == policy.QuoteId);
+
+        if (policy is null && quote is null)
+        {
+            message = $"Nothing found for '{term}'.";
+            return;
+        }
+
+        if (quote is not null)
+            ledger = JsonSerializer.Deserialize<List<RatingStep>>(quote.LedgerJson) ?? [];
+
+        var entityIds = new List<Guid>();
+        if (policy is not null) entityIds.AddRange([policy.PolicyId, policy.QuoteId]);
+        if (quote is not null) entityIds.AddRange([quote.QuoteId, quote.SubmissionId]);
+
+        events = await db.AuditEvents.AsNoTracking()
+            .Where(e => entityIds.Contains(e.EntityId)
+                        || (policy != null && e.ExternalReferenceId == policy.ExternalReferenceId))
+            .OrderBy(e => e.OccurredAt)
+            .ToListAsync();
+
+        if (policy is not null)
+            reconciliation = await db.ReconciliationResults.AsNoTracking()
+                .Where(r => r.ExternalReferenceId == policy.ExternalReferenceId)
+                .OrderByDescending(r => r.CreatedAt)
+                .ToListAsync();
+    }
+}
