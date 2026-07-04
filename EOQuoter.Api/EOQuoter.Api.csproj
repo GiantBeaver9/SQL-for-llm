@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\EOQuoter.Domain\EOQuoter.Domain.csproj" />
+    <ProjectReference Include="..\EOQuoter.Data\EOQuoter.Data.csproj" />
+    <ProjectReference Include="..\EOQuoter.Intake\EOQuoter.Intake.csproj" />
+    <ProjectReference Include="..\EOQuoter.Underwriting\EOQuoter.Underwriting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.*" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
