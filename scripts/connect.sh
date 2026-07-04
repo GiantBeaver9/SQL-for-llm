@@ -39,6 +39,17 @@ open_url() {
   else echo "Open manually: $url"; fi
 }
 
+# Is the PC reachable yet? Prefer probing the RDP port (portable, and it means
+# "actually ready to accept a session"); fall back to a plain ping. Avoids the
+# ping -W flag, which means seconds on Linux but milliseconds on macOS.
+is_up() {
+  if command -v nc >/dev/null 2>&1; then
+    nc -z -w1 "$HOST" 3389 >/dev/null 2>&1
+  else
+    ping -c1 "$HOST" >/dev/null 2>&1
+  fi
+}
+
 case "$ACTION" in
   ssh)
     exec ssh "${USER_NAME}@${HOST}"
@@ -76,7 +87,7 @@ case "$ACTION" in
     if [[ "${2:-}" == "--wait" ]]; then
       printf 'Waiting for %s to respond' "$HOST"
       for _ in $(seq 1 30); do
-        if ping -c1 -W1 "$HOST" >/dev/null 2>&1; then echo " up!"; exit 0; fi
+        if is_up; then echo " up!"; exit 0; fi
         printf '.'; sleep 2
       done
       echo " (still no response after ~60s — give it a bit longer or check BIOS WoL)"

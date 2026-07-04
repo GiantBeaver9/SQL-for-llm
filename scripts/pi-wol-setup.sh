@@ -65,7 +65,7 @@ echo
 echo "Wake the PC from any Tailnet device with:"
 echo "    ssh <pi-user>@<pi-tailscale-name> wake-home-pc"
 echo
-echo "This Pi's Tailscale name/IP:"
-tailscale status --self --peers=false 2>/dev/null || tailscale ip -4 2>/dev/null || true
+echo "This Pi's Tailscale IP: $(tailscale ip -4 2>/dev/null || echo '(run: tailscale ip -4)')"
+echo "  (its MagicDNS name is shown by:  tailscale status)"
 echo
-echo "Tip: reserve the PC's (and this Pi's) IP in Pi-hole's DHCP for reliability."
+echo "Tip: reserve the PC's LAN IP wherever your DHCP runs (router or Pi-hole)."
